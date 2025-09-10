@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="d54a2db1-5596-401c-ba89-be83b92a2f6d" name="ww-autodl">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="30236" sshConfigId="eaccba3c-d925-4e51-a3da-239daa04160f" sshConfig="root@121.48.170.6:30236 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="4151ed1c-e98c-4611-a233-ee30c0291d20" name="ww-autodl-3">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="30236" sshConfigId="eaccba3c-d925-4e51-a3da-239daa04160f" sshConfig="root@121.48.170.6:30236 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="ad8b2ca8-ce97-48c8-9924-e1005d31d202" name="ww-autodl-1-2k">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="49649" sshConfigId="cab06376-7dae-43fd-b727-2cce144782ea" sshConfig="root@121.48.170.6:49649 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="0e24acb4-80cd-4b54-a1ec-ad3b48439228" name="gh-autodl-1">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="30236" sshConfigId="eaccba3c-d925-4e51-a3da-239daa04160f" sshConfig="root@121.48.170.6:30236 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="7e47e2f3-f8b3-468d-8b2c-3e56755cc36d" name="gh-autodl-1-2k">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="36280" sshConfigId="dab6ee55-c974-4d75-be8c-019fd88c4580" sshConfig="root@121.48.170.6:36280 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="e8661780-020a-4ff6-9c99-907e366c5050" name="gh_autodl_2">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="20157" sshConfigId="fc6aadc1-efb6-4541-94b5-3f7d3d84336b" sshConfig="root@121.48.170.6:20157 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="034f518d-403f-4fe3-b90a-350ffb94e069" name="gh_autodl_3">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="28832" sshConfigId="6f1f6df3-cd10-4286-94d1-12dc76bb7d03" sshConfig="root@121.48.170.6:28832 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
