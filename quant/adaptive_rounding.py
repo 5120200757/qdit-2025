@@ -43,8 +43,14 @@ class AdaRoundQuantizer(nn.Module):
         self.sigmoid = uaq.sigmoid
 
         self.t_out = uaq.t_out
-        if self.t_out:
+
+        if self.t_out and uaq.x_outlier is not None:
             self.x_outlier = uaq.x_outlier
+            xo = self.x_outlier.coalesce()
+            self.register_buffer("outlier_indices", xo.indices(), persistent=True)
+            self.register_buffer("outlier_values", xo.values(), persistent=True)
+            del self.x_outlier
+        
 
         # params for sigmoid function
         self.gamma, self.zeta = -0.1, 1.1
@@ -84,6 +90,28 @@ class AdaRoundQuantizer(nn.Module):
         zero_point = nn.Parameter(zero_point.detach())
         return delta, zero_point
 
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        # 动态注册缺失的 buffer, checkpoint里有，当前adaround没有
+        for name in ['outlier_indices', 'outlier_values']:
+            key = prefix + name
+            if key in state_dict and not hasattr(self, name):
+                self.register_buffer(name, torch.empty_like(state_dict[key]), persistent=True)
+        # 形状不一致，直接替换而不是 copy_
+        for name in ['outlier_indices', 'outlier_values']:
+            key = prefix + name
+            if key in state_dict:
+                cur = getattr(self, name)
+                new = state_dict[key]
+                if cur.shape != new.shape:
+                    # 重新注册
+                    self._buffers.pop(name, None)
+                    self.register_buffer(name, new.clone(), persistent=True)
+                    # 删除，避免父类再尝试 copy_ 时报错
+                    state_dict.pop(key)
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs)
+
     def forward(self, x):
         if self.round_mode == 'nearest':
             x_int = torch.round(x / self.delta)
@@ -99,13 +127,15 @@ class AdaRoundQuantizer(nn.Module):
                 self.delta, self.zero_point = self.init_scale(x)
 
             # 减去离群点
-            x_work= x.clone()   
-
-            if self.t_out and self.x_outlier is not None:
-                xo = self.x_outlier.coalesce()
-                idx = tuple(xo.indices())
-                vals = xo.values()
+            if self.t_out and hasattr(self, 'outlier_indices'):
+                x_work= x.clone()
+                self.outlier_indices = self.outlier_indices.to(x_work.device)
+                self.outlier_values = self.outlier_values.to(x_work.device)
+                idx = tuple(self.outlier_indices)
+                vals = self.outlier_values
                 x_work[idx] -= vals
+            else:
+                x_work = x
 
             x_floor = torch.floor(x_work / self.delta)
             if self.soft_targets:
@@ -119,12 +149,10 @@ class AdaRoundQuantizer(nn.Module):
         x_float_q = (x_quant - self.zero_point) * self.delta
 
         # 加回离群点
-        if self.t_out and self.x_outlier is not None:
-            xo = self.x_outlier.coalesce()
-            idx = tuple(xo.indices())
-            vals = xo.values()
+        if self.t_out and hasattr(self, 'outlier_indices'):
+            idx = tuple(self.outlier_indices)
+            vals = self.outlier_values
             x_float_q[idx] = vals
-
         return x_float_q
 
     def get_soft_targets(self):

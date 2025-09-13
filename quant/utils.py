@@ -375,7 +375,7 @@ def resume_cali_model(qnn, ckpt_path, cali_data):
     cali_xs, cali_ts, cali_ys, cfg_scale = cali_data
     _ = qnn(cali_xs.cuda(), cali_ts.cuda(), cali_ys.cuda(), cfg_scale)
     # change weight quantizer from uniform to adaround
-    # convert_adaround(qnn)
+    convert_adaround(qnn)
     
     for n, m in qnn.model.named_modules():
         # if isinstance(m, AdaRoundQuantizer):

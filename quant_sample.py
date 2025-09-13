@@ -90,7 +90,7 @@ def main(args):
 
     # Setup quantization:
     a_scale_method = 'mse'
-    wq_params = {'n_bits': args.weight_bit, 'channel_wise': True, 'scale_method': 'mse', 'lwc':True, 't_out': True}
+    wq_params = {'n_bits': args.weight_bit, 'channel_wise': True, 'scale_method': 'mse', 'lwc':False, 't_out': True }
     aq_params = {'n_bits': args.act_bit, 'symmetric': False, 'channel_wise': False, 'scale_method': a_scale_method, 'leaf_param': True, 't_out': False}
 
 
@@ -175,11 +175,17 @@ def main(args):
                 if isinstance(m, UniformAffineQuantizer):
                     m.delta = nn.Parameter(m.delta)
                     # lwc
-                    if m.upbound_factor is not None:
+                    if hasattr(m, 'upbound_factor') and m.upbound_factor is not None:
                         m.upbound_factor = nn.Parameter(m.upbound_factor)
+                    if hasattr(m, 'lowbound_factor') and m.lowbound_factor is not None:
                         m.lowbound_factor = nn.Parameter(m.lowbound_factor)
+
                     # 离群点
-                    m.x_outlier = nn.Parameter(m.x_outlier)
+                    if hasattr(m, 'x_outlier') and m.x_outlier is not None:
+                        outlier_tensor = torch.tensor(m.x_outlier, device=m.x_outlier.device)
+                        del m.x_outlier
+                        m.register_buffer('x_outlier', outlier_tensor, persistent=True)
+
                     if m.zero_point is not None:
                         if not torch.is_tensor(m.zero_point):
                             m.zero_point = nn.Parameter(torch.tensor(float(m.zero_point)))
@@ -214,18 +220,21 @@ def main(args):
                     m.zero_point = nn.Parameter(m.zero_point)
                     m.delta = nn.Parameter(m.delta)
                     # lwc
-                    m.upbound_factor = nn.Parameter(m.upbound_factor)
-                    m.lowbound_factor = nn.Parameter(m.lowbound_factor)
+                    if hasattr(m, 'upbound_factor') and m.upbound_factor is not None:
+                        m.upbound_factor = nn.Parameter(m.upbound_factor)
+                    if hasattr(m, 'lowbound_factor') and m.lowbound_factor is not None:
+                        m.lowbound_factor = nn.Parameter(m.lowbound_factor)
+
                     # 离群点
-                    m.x_outlier = nn.Parameter(m.x_outlier)
+                    # outlier_indices, outlier_values, 本身就是buffer
 
                 elif isinstance(m, UniformAffineQuantizer):
                     m.delta = nn.Parameter(m.delta)
-                    #  lwc
-                    m.upbound_factor = nn.Parameter(m.upbound_factor)
-                    m.lowbound_factor = nn.Parameter(m.lowbound_factor)
-                    # 离群点
-                    m.x_outlier = nn.Parameter(m.x_outlier)
+                    # lwc
+                    if hasattr(m, 'upbound_factor') and m.upbound_factor is not None:
+                        m.upbound_factor = nn.Parameter(m.upbound_factor)
+                    if hasattr(m, 'lowbound_factor') and m.lowbound_factor is not None:
+                        m.lowbound_factor = nn.Parameter(m.lowbound_factor)
                     if m.zero_point is not None:
                         if not torch.is_tensor(m.zero_point):
                             m.zero_point = nn.Parameter(torch.tensor(float(m.zero_point)))

@@ -13,7 +13,6 @@ import time
 logger = logging.getLogger(__name__)
 CLIPMIN = 1e-8
 
-
 class StraightThrough(nn.Module):
     def __init__(self, channel_num: int = 1):
         super().__init__()
@@ -64,7 +63,6 @@ class UniformAffineQuantizer(nn.Module):
     :param n_bits: number of bit for quantization
     :param channel_wise: if True, compute scale and zero_point in each channel
     """
-
     def __init__(self, n_bits: int = 8, symmetric: bool = False, channel_wise: bool = False, scale_method: str = 'max',
                  leaf_param: bool = False, always_zero: bool = False, lwc: bool = False, t_out: bool = False):
         super(UniformAffineQuantizer, self).__init__()
@@ -106,12 +104,20 @@ class UniformAffineQuantizer(nn.Module):
         if self.running_stat:
             self.act_momentum_update(x)
 
+
+
         # x去离群点
         if self.t_out and self.x_outlier is not None:
-            x = x - self.x_outlier
+            x_clone = x.clone()
+            xo = self.x_outlier.coalesce()
+            idx = tuple(xo.indices())
+            vals = xo.values()
+            x_clone[idx] -= vals
+        else:
+            x_clone = x
 
         # start quantization
-        x_int = round_ste(x / self.delta) + self.zero_point
+        x_int = round_ste(x_clone / self.delta) + self.zero_point
 
         x_quant = torch.clamp(x_int, 0, self.n_levels - 1)
         if self.sym:
@@ -119,10 +125,13 @@ class UniformAffineQuantizer(nn.Module):
         else:
             x_quant = torch.clamp(x_int, 0, self.n_levels - 1)
         x_dequant = (x_quant - self.zero_point) * self.delta
+
         # 加回离群点
         if self.t_out and self.x_outlier is not None:
-            mask = self.x_outlier != 0
-            x_dequant = torch.where(mask, self.x_outlier, x_dequant)
+                xo = self.x_outlier.coalesce()
+                idx = tuple(xo.indices())
+                vals = xo.values()
+                x_dequant[idx] = vals
 
         return x_dequant
 
@@ -206,9 +215,8 @@ class UniformAffineQuantizer(nn.Module):
                     x_outlier = torch.zeros_like(x_clone)
 
                 for c in range(n_channels):
-
                     if len(x.shape) == 3:
-                        self.x_max[c], self.x_min[c] = self.init_bound(x_clone[:, c, :])
+                        self.x_max[c], self.x_min[c] = self.init_bound(x_clone[:,c,:])
                     else:
                         self.x_max[c], self.x_min[c] = self.init_bound(x_clone[c])
 
@@ -266,17 +274,18 @@ class UniformAffineQuantizer(nn.Module):
                 delta = x_max.clone()
                 zero_point = x_max.clone()
 
-                if self.t_out:
+                # 如果是max，会加载检查点文件，就直接跳过
+                if self.t_out and 'max' not in self.scale_method:
                     # 离群点矩阵
                     x_outlier = torch.zeros_like(x_clone)
 
                 for c in range(n_channels):
                     if len(x.shape) == 3:
-                        delta[c], zero_point[c], _ = self.init_quantization_scale(x_clone[:, c, :], channel_wise=False)
+                        delta[c], zero_point[c], _ = self.init_quantization_scale(x_clone[:,c,:], channel_wise=False)
                     else:
                         delta[c], zero_point[c], _ = self.init_quantization_scale(x_clone[c], channel_wise=False)
 
-                    if self.t_out:
+                    if self.t_out and 'max' not in self.scale_method:
                         if len(x.shape) == 3:
                             x_max, x_min = self.init_bound(x_clone[:, c, :])
                             x_c = x_clone[:, c, :]
@@ -326,34 +335,6 @@ class UniformAffineQuantizer(nn.Module):
                 zero_point = round(-x_min / delta) if not (self.sym or self.always_zero) else 0
                 delta = torch.tensor(delta).type_as(x)
             else:
-
-                """
-                3.普通分位数
-                """
-                # x_clone = x.clone().detach()
-                # x_max = x_clone.max()
-                # x_min = x_clone.min()
-                # best_score = 1e+10
-                # for pct in [0.999, 0.9999, 0.99999]:
-                #     try:
-                #         new_max = torch.quantile(x_clone.reshape(-1), pct)
-                #         new_min = torch.quantile(x_clone.reshape(-1), 1.0 - pct)
-                #     except:
-                #         new_max = torch.tensor(np.percentile(
-                #             x_clone.reshape(-1).cpu(), pct * 100),
-                #             device=x_clone.device,
-                #             dtype=torch.float32)
-                #         new_min = torch.tensor(np.percentile(
-                #             x_clone.reshape(-1).cpu(), (1 - pct) * 100),
-                #             device=x_clone.device,
-                #             dtype=torch.float32)
-                #     x_q = self.quantize(x_clone, new_max, new_min)
-                #     score = lp_loss(x_clone, x_q, p=2, reduction='all')
-                #     if score < best_score:
-                #         best_score = score
-                #         delta = (new_max - new_min) / (2 ** self.n_bits - 1)
-                #         zero_point = (- new_min / delta).round()
-
                 """
                 4.结合
                 """
@@ -397,10 +378,6 @@ class UniformAffineQuantizer(nn.Module):
                 delta = (x_max - x_min) / (2 ** self.n_bits - 1)
                 zero_point = (- x_min / delta).round()
 
-                if self.t_out:
-                    x_outlier = torch.zeros_like(x_clone)
-                    mask = (x_clone > x_max) | (x_clone < x_min)
-                    x_outlier = torch.where(mask, x_clone, torch.zeros_like(x_clone))
 
         if self.t_out and x_outlier is not None:
             x_outlier = x_outlier.to_sparse()
@@ -415,13 +392,11 @@ class UniformAffineQuantizer(nn.Module):
         x_float_q = (x_quant - zero_point) * delta
         return x_float_q
 
-
 class QuantModule(nn.Module):
     """
     Quantized Module that can perform quantized convolution or normal convolution.
     To activate quantization, please use set_quant_state function.
     """
-
     def __init__(self, org_module: Union[nn.Linear], weight_quant_params: dict = {},
                  act_quant_params: dict = {}, disable_act_quant: bool = False):
         super(QuantModule, self).__init__()
