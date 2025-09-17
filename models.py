@@ -144,14 +144,14 @@ class Mlp(nn.Module):
                 x_scale = (x_scale * tau_softmax.view(-1, 1)).sum(dim=0).type(torch.float32)
 
 
-                # alpha = 0.6
-                # self.scale_fc1 = ( (x_scale) ** alpha ) / ( (w_scale + 1e-8) ** (1 - alpha) )
-                # self.fc1.weight = self.fc1.weight * self.scale_fc1
-
-
-                self.scale_fc1 = x_scale / (w_scale + 1e-8)
-                self.scale_fc1 = self.scale_fc1 ** (0.5)
+                alpha = 0.6
+                self.scale_fc1 = ( (x_scale) ** alpha ) / ( (w_scale + 1e-8) ** (1 - alpha) )
                 self.fc1.weight = self.fc1.weight * self.scale_fc1
+
+
+                # self.scale_fc1 = x_scale / (w_scale + 1e-8)
+                # self.scale_fc1 = self.scale_fc1 ** (0.5)
+                # self.fc1.weight = self.fc1.weight * self.scale_fc1
             x = x / self.scale_fc1
 
         x = self.fc1(x)
@@ -204,14 +204,14 @@ class Attention(nn.Module):
                 tau_softmax = F.softmax(-tau_tensor, dim=0) 
                 x_scale = (x_scale * tau_softmax.view(-1, 1)).sum(dim=0).type(torch.float32)
 
-                # alpha = 0.6
-                # self.scale_qkv = ((x_scale) ** alpha) / ((w_scale + 1e-8) ** (1 - alpha))
-                # self.qkv.weight = self.qkv.weight * self.scale_qkv
-
-
-                self.scale_qkv = x_scale / (w_scale + 1e-8)
-                self.scale_qkv = self.scale_qkv ** (0.5)
+                alpha = 0.6
+                self.scale_qkv = ((x_scale) ** alpha) / ((w_scale + 1e-8) ** (1 - alpha))
                 self.qkv.weight = self.qkv.weight * self.scale_qkv
+
+
+                # self.scale_qkv = x_scale / (w_scale + 1e-8)
+                # self.scale_qkv = self.scale_qkv ** (0.5)
+                # self.qkv.weight = self.qkv.weight * self.scale_qkv
             x = x / self.scale_qkv
 
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
@@ -244,13 +244,13 @@ class Attention(nn.Module):
                 tau_softmax = F.softmax(-tau_tensor, dim=0) 
                 x_scale = (x_scale * tau_softmax.view(-1, 1)).sum(dim=0).type(torch.float32)
 
-                # alpha = 0.6
-                # self.scale_proj = ((x_scale) ** alpha) / ((w_scale + 1e-8) ** (1 - alpha))
-                # self.proj.weight = self.proj.weight * self.scale_proj
-
-                self.scale_proj = x_scale / (w_scale + 1e-8)
-                self.scale_proj = self.scale_proj ** (0.5)
+                alpha = 0.6
+                self.scale_proj = ((x_scale) ** alpha) / ((w_scale + 1e-8) ** (1 - alpha))
                 self.proj.weight = self.proj.weight * self.scale_proj
+                #
+                # self.scale_proj = x_scale / (w_scale + 1e-8)
+                # self.scale_proj = self.scale_proj ** (0.5)
+                # self.proj.weight = self.proj.weight * self.scale_proj
             x = x / self.scale_proj
 
         x = self.proj(x)

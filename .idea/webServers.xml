@@ -23,6 +23,20 @@
           </advancedOptions>
         </fileTransfer>
       </webServer>
+      <webServer id="81ba603d-c0ec-43b5-a1dc-499fc37fb5ce" name="ww_autodl_1">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="47093" sshConfigId="693f9497-1d77-4138-a795-54612233490a" sshConfig="root@121.48.170.6:47093 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="87735b6a-b4b0-443e-80fb-e574cd3b8034" name="ww_autodl_3">
+        <fileTransfer accessType="SFTP" host="121.48.170.6" port="53033" sshConfigId="84e089c8-a1ab-4e26-8540-b1878fff4106" sshConfig="root@121.48.170.6:53033 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
     </option>
   </component>
 </project>

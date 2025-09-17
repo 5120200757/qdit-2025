@@ -13,6 +13,7 @@ import time
 logger = logging.getLogger(__name__)
 CLIPMIN = 1e-8
 
+
 class StraightThrough(nn.Module):
     def __init__(self, channel_num: int = 1):
         super().__init__()
@@ -63,8 +64,9 @@ class UniformAffineQuantizer(nn.Module):
     :param n_bits: number of bit for quantization
     :param channel_wise: if True, compute scale and zero_point in each channel
     """
+
     def __init__(self, n_bits: int = 8, symmetric: bool = False, channel_wise: bool = False, scale_method: str = 'max',
-                 leaf_param: bool = False, always_zero: bool = False, lwc: bool = False, t_out: bool = False, qat: bool = False):
+                 leaf_param: bool = False, always_zero: bool = False, lwc: bool = False, t_out: bool = False):
         super(UniformAffineQuantizer, self).__init__()
         assert 2 <= n_bits <= 8, 'bitwidth not supported'
         self.sym = symmetric
@@ -82,20 +84,31 @@ class UniformAffineQuantizer(nn.Module):
         if self.leaf_param:
             self.x_min, self.x_max = None, None
         self.lwc = lwc
+        self.t_out = t_out
         if self.lwc:
             self.upbound_factor, self.lowbound_factor, self.x_max, self.x_min = None, None, None, None
         self.sigmoid = nn.Sigmoid()
-
-        self.t_out = t_out
-
-        self.qat = qat
-        if self.qat:
-            self.pct = 0.99
 
     def __repr__(self):
         s = super(UniformAffineQuantizer, self).__repr__()
         s = "(" + s + " inited={}, channel_wise={})".format(self.inited, self.channel_wise)
         return s
+    
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        key = prefix + "x_outlier"
+        if key in state_dict:
+
+            tensor = state_dict[key]
+            if hasattr(self, "x_outlier") and "x_outlier" not in self._buffers:
+                delattr(self, "x_outlier")
+            if "x_outlier" in self._buffers:
+                self._buffers["x_outlier"] = tensor.clone()
+            else:
+                self.register_buffer("x_outlier", tensor.clone(), persistent=True)
+            state_dict.pop(key)
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs)
 
     def forward(self, x: torch.Tensor):
         if self.inited is False:
@@ -113,6 +126,7 @@ class UniformAffineQuantizer(nn.Module):
         # x去离群点
         if self.t_out and self.x_outlier is not None:
             x_clone = x.clone()
+            self.x_outlier = self.x_outlier.to(x_clone.device)
             xo = self.x_outlier.coalesce()
             idx = tuple(xo.indices())
             vals = xo.values()
@@ -166,52 +180,36 @@ class UniformAffineQuantizer(nn.Module):
         mean_val = x_clone.mean()
         std_val = x_clone.std()
         best_score = 1e+10
-        if self.qat:
-            pct = self.pct
+        for pct in [0.999, 0.9999, 0.99999]:
             try:
                 new_max = torch.quantile(x_clone.reshape(-1), pct)
                 new_min = torch.quantile(x_clone.reshape(-1), 1.0 - pct)
-            except Exception:
-                flat_cpu = x_clone.reshape(-1).cpu().numpy()
-                new_max = torch.tensor(np.percentile(flat_cpu, pct * 100),device=x_clone.device, dtype=x_clone.dtype)
-                new_min = torch.tensor(np.percentile(flat_cpu, (1 - pct) * 100),device=x_clone.device, dtype=x_clone.dtype)
-            
-            if new_max <= new_min:
-                self.pct = 1.0
-            else:
+            except:
+                new_max = torch.tensor(np.percentile(
+                    x_clone.reshape(-1).cpu(), pct * 100),
+                    device=x_clone.device,
+                    dtype=torch.float32)
+                new_min = torch.tensor(np.percentile(
+                    x_clone.reshape(-1).cpu(), (1 - pct) * 100),
+                    device=x_clone.device,
+                    dtype=torch.float32)
+            x_q = self.quantize(x_clone, new_max, new_min)
+            score = lp_loss(x_clone, x_q, p=2, reduction='all')
+            if score < best_score:
+                best_score = score
                 x_max = new_max
                 x_min = new_min
-        else:
-            for pct in [0.999, 0.9999, 0.99999]:
-                try:
-                    new_max = torch.quantile(x_clone.reshape(-1), pct)
-                    new_min = torch.quantile(x_clone.reshape(-1), 1.0 - pct)
-                except:
-                    new_max = torch.tensor(np.percentile(
-                        x_clone.reshape(-1).cpu(), pct * 100),
-                        device=x_clone.device,
-                        dtype=torch.float32)
-                    new_min = torch.tensor(np.percentile(
-                        x_clone.reshape(-1).cpu(), (1 - pct) * 100),
-                        device=x_clone.device,
-                        dtype=torch.float32)
-                x_q = self.quantize(x_clone, new_max, new_min)
-                score = lp_loss(x_clone, x_q, p=2, reduction='all')
-                if score < best_score:
-                    best_score = score
-                    x_max = new_max
-                    x_min = new_min
-            for pct in [0.999, 0.995, 0.99]:
-                z_values = st.norm.ppf(pct, loc=mean_val.detach().cpu(), scale=std_val.detach().cpu())
-                new_max = mean_val + z_values * std_val
-                new_min = mean_val - z_values * std_val
-
-                x_q = self.quantize(x_clone, new_max, new_min)
-                score = lp_loss(x_clone, x_q, p=2, reduction='all')
-                if score < best_score:
-                    best_score = score
-                    x_max = new_max
-                    x_min = new_min
+        # for pct in [0.999, 0.995, 0.99]:
+        #     z_values = st.norm.ppf(pct, loc=mean_val.detach().cpu(), scale=std_val.detach().cpu())
+        #     new_max = mean_val + z_values * std_val
+        #     new_min = mean_val - z_values * std_val
+        #
+        #     x_q = self.quantize(x_clone, new_max, new_min)
+        #     score = lp_loss(x_clone, x_q, p=2, reduction='all')
+        #     if score < best_score:
+        #         best_score = score
+        #         x_max = new_max
+        #         x_min = new_min
 
         return x_max, x_min
 
@@ -235,8 +233,9 @@ class UniformAffineQuantizer(nn.Module):
                     x_outlier = torch.zeros_like(x_clone)
 
                 for c in range(n_channels):
+
                     if len(x.shape) == 3:
-                        self.x_max[c], self.x_min[c] = self.init_bound(x_clone[:,c,:])
+                        self.x_max[c], self.x_min[c] = self.init_bound(x_clone[:, c, :])
                     else:
                         self.x_max[c], self.x_min[c] = self.init_bound(x_clone[c])
 
@@ -252,6 +251,21 @@ class UniformAffineQuantizer(nn.Module):
                             x_outlier[:, c, :] = torch.where(mask, x_c, torch.zeros_like(x_c))
                         else:
                             x_outlier[c] = torch.where(mask, x_c, torch.zeros_like(x_c))
+
+
+                # 如果有提取离群点，则减去离群点后计算max和min的参数
+                if self.t_out:
+                    x_outlier = x_outlier.to_sparse()
+                    xo = x_outlier.coalesce()
+                    idx = tuple(xo.indices())
+                    vals = xo.values()
+                    x_clone[idx] -= vals
+
+                    for c in range(n_channels):
+                        if len(x.shape) == 3:
+                            self.x_max[c], self.x_min[c] = self.init_bound(x_clone[:, c, :])
+                        else:
+                            self.x_max[c], self.x_min[c] = self.init_bound(x_clone[c])
 
                 device = self.x_max.device
                 xmax = self.sigmoid(self.upbound_factor).to(device) * self.x_max
@@ -301,7 +315,7 @@ class UniformAffineQuantizer(nn.Module):
 
                 for c in range(n_channels):
                     if len(x.shape) == 3:
-                        delta[c], zero_point[c], _ = self.init_quantization_scale(x_clone[:,c,:], channel_wise=False)
+                        delta[c], zero_point[c], _ = self.init_quantization_scale(x_clone[:, c, :], channel_wise=False)
                     else:
                         delta[c], zero_point[c], _ = self.init_quantization_scale(x_clone[c], channel_wise=False)
 
@@ -356,7 +370,7 @@ class UniformAffineQuantizer(nn.Module):
                 delta = torch.tensor(delta).type_as(x)
             else:
                 """
-                4.分位数结合正态分布拟合
+                4.结合
                 """
                 x_clone = x.clone().detach()
                 x_max = x_clone.max()
@@ -364,58 +378,42 @@ class UniformAffineQuantizer(nn.Module):
                 mean_val = x_clone.mean()
                 std_val = x_clone.std()
                 best_score = 1e+10
-                if self.qat:
-                    pct = self.pct
+                for pct in [0.999, 0.9999, 0.99999]:
                     try:
                         new_max = torch.quantile(x_clone.reshape(-1), pct)
                         new_min = torch.quantile(x_clone.reshape(-1), 1.0 - pct)
-                    except Exception:
-                        flat_cpu = x_clone.reshape(-1).cpu().numpy()
-                        new_max = torch.tensor(np.percentile(flat_cpu, pct * 100),device=x_clone.device, dtype=x_clone.dtype)
-                        new_min = torch.tensor(np.percentile(flat_cpu, (1 - pct) * 100),device=x_clone.device, dtype=x_clone.dtype)
-                    
-                    if new_max <= new_min:
-                        self.pct = 1.0
-                    else:
+                    except:
+                        new_max = torch.tensor(np.percentile(
+                            x_clone.reshape(-1).cpu(), pct * 100),
+                            device=x_clone.device,
+                            dtype=torch.float32)
+                        new_min = torch.tensor(np.percentile(
+                            x_clone.reshape(-1).cpu(), (1 - pct) * 100),
+                            device=x_clone.device,
+                            dtype=torch.float32)
+                    x_q = self.quantize(x_clone, new_max, new_min)
+                    score = lp_loss(x_clone, x_q, p=2, reduction='all')
+                    if score < best_score:
+                        best_score = score
                         x_max = new_max
                         x_min = new_min
-                else:
-                    for pct in [0.999, 0.9999, 0.99999]:
-                        try:
-                            new_max = torch.quantile(x_clone.reshape(-1), pct)
-                            new_min = torch.quantile(x_clone.reshape(-1), 1.0 - pct)
-                        except:
-                            new_max = torch.tensor(np.percentile(
-                                x_clone.reshape(-1).cpu(), pct * 100),
-                                device=x_clone.device,
-                                dtype=torch.float32)
-                            new_min = torch.tensor(np.percentile(
-                                x_clone.reshape(-1).cpu(), (1 - pct) * 100),
-                                device=x_clone.device,
-                                dtype=torch.float32)
-                        x_q = self.quantize(x_clone, new_max, new_min)
-                        score = lp_loss(x_clone, x_q, p=2, reduction='all')
-                        if score < best_score:
-                            best_score = score
-                            x_max = new_max
-                            x_min = new_min
-                    for pct in [0.999, 0.995, 0.990]:
-                        z_values = st.norm.ppf(pct, loc=mean_val.detach().cpu(), scale=std_val.detach().cpu())
-                        new_max = mean_val + z_values * std_val
-                        new_min = mean_val - z_values * std_val
-
-                        x_q = self.quantize(x_clone, new_max, new_min)
-                        score = lp_loss(x_clone, x_q, p=2, reduction='all')
-                        if score < best_score:
-                            best_score = score
-                            x_max = new_max
-                            x_min = new_min
+                # for pct in [0.999, 0.995, 0.990]:
+                #     z_values = st.norm.ppf(pct, loc=mean_val.detach().cpu(), scale=std_val.detach().cpu())
+                #     new_max = mean_val + z_values * std_val
+                #     new_min = mean_val - z_values * std_val
+                #
+                #     x_q = self.quantize(x_clone, new_max, new_min)
+                #     score = lp_loss(x_clone, x_q, p=2, reduction='all')
+                #     if score < best_score:
+                #         best_score = score
+                #         x_max = new_max
+                #         x_min = new_min
 
                 delta = (x_max - x_min) / (2 ** self.n_bits - 1)
                 zero_point = (- x_min / delta).round()
 
 
-        if self.t_out and x_outlier is not None:
+        if self.t_out and x_outlier is not None and  not x_outlier.is_sparse:
             x_outlier = x_outlier.to_sparse()
 
         return delta, zero_point, x_outlier
@@ -428,11 +426,13 @@ class UniformAffineQuantizer(nn.Module):
         x_float_q = (x_quant - zero_point) * delta
         return x_float_q
 
+
 class QuantModule(nn.Module):
     """
     Quantized Module that can perform quantized convolution or normal convolution.
     To activate quantization, please use set_quant_state function.
     """
+
     def __init__(self, org_module: Union[nn.Linear], weight_quant_params: dict = {},
                  act_quant_params: dict = {}, disable_act_quant: bool = False):
         super(QuantModule, self).__init__()

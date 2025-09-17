@@ -364,11 +364,35 @@ def convert_adaround(model):
         else:
             convert_adaround(module)
 
+def _log_x_outlier_in_ckpt(ckpt):
+    """
+    打印 ckpt 中的 x_outlier 参数信息
+    """
+    found = False
+    for k, v in ckpt.items():
+        if "x_outlier" in k:
+            found = True
+            if isinstance(v, torch.Tensor):
+                if v.is_sparse:
+                    v_co = v.coalesce()
+                    nnz = v_co._nnz()
+                    print(f"[x_outlier] {k}: SPARSE shape={tuple(v_co.shape)} nnz={nnz}")
+                    if nnz <= 20:
+                        print(f"  indices={v_co.indices().t().tolist()}")
+                        print(f"  values={v_co.values().tolist()}")
+                else:
+                    print(f"[x_outlier] {k}: DENSE shape={tuple(v.shape)} numel={v.numel()}")
+                    if v.numel() <= 20:
+                        print(f"  values={v.flatten().tolist()}")
+            else:
+                print(f"[x_outlier] {k}: 非 Tensor 类型: {type(v)}")
+    if not found:
+        print("[x_outlier] ckpt 中未发现任何 x_outlier 键")
 
 def resume_cali_model(qnn, ckpt_path, cali_data):
     print("Loading quantized model checkpoint: ", ckpt_path)
     ckpt = torch.load(ckpt_path, map_location='cpu')
-    
+
     print("Initializing weight quantization parameters")
     qnn.set_quant_state(True, False)
     
@@ -387,6 +411,7 @@ def resume_cali_model(qnn, ckpt_path, cali_data):
     keys = [key for key in ckpt.keys() if "act" in key]
     for key in keys:
         del ckpt[key]
+
     qnn.load_state_dict(ckpt,strict=False)
     qnn.set_quant_state(weight_quant=True, act_quant=False)
     
@@ -409,6 +434,7 @@ def resume_cali_model(qnn, ckpt_path, cali_data):
         if isinstance(m, AdaRoundQuantizer):
             m.zero_point = nn.Parameter(m.zero_point)
             m.delta = nn.Parameter(m.delta)
+
         elif isinstance(m, UniformAffineQuantizer):
             m.delta = nn.Parameter(m.delta)
             if m.zero_point is not None:

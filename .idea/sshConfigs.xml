@@ -5,6 +5,8 @@
       <sshConfig authType="PASSWORD" host="121.48.170.6" id="fc6aadc1-efb6-4541-94b5-3f7d3d84336b" port="20157" nameFormat="DESCRIPTIVE" username="root" useOpenSSHConfig="true" />
       <sshConfig authType="PASSWORD" host="121.48.170.6" id="6f1f6df3-cd10-4286-94d1-12dc76bb7d03" port="28832" nameFormat="DESCRIPTIVE" username="root" useOpenSSHConfig="true" />
       <sshConfig authType="PASSWORD" host="121.48.170.6" id="4f16d973-fbbe-4d69-adc6-905d2c999c17" port="34857" nameFormat="DESCRIPTIVE" username="root" useOpenSSHConfig="true" />
+      <sshConfig authType="PASSWORD" host="121.48.170.6" id="693f9497-1d77-4138-a795-54612233490a" port="47093" nameFormat="DESCRIPTIVE" username="root" useOpenSSHConfig="true" />
+      <sshConfig authType="PASSWORD" host="121.48.170.6" id="84e089c8-a1ab-4e26-8540-b1878fff4106" port="53033" nameFormat="DESCRIPTIVE" username="root" useOpenSSHConfig="true" />
     </configs>
   </component>
 </project>

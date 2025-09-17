@@ -26,8 +26,7 @@ from quant.adaptive_rounding import AdaRoundQuantizer
 import numpy as np
 from quant.layer_recon import layer_reconstruction
 from quant.block_recon import block_reconstruction
-from quant.layer_pct import layer_tunepct
-from quant.block_pct import block_tunepct
+from quant.utils import convert_adaround
 
 
 logger = logging.getLogger(__name__)
@@ -92,7 +91,7 @@ def main(args):
 
     # Setup quantization:
     a_scale_method = 'mse'
-    wq_params = {'n_bits': args.weight_bit, 'channel_wise': True, 'scale_method': 'mse', 'lwc':False, 't_out': True, 'qat':False }
+    wq_params = {'n_bits': args.weight_bit, 'channel_wise': True, 'scale_method': 'mse', 'lwc':True, 't_out': True}
     aq_params = {'n_bits': args.act_bit, 'symmetric': False, 'channel_wise': False, 'scale_method': a_scale_method, 'leaf_param': True, 't_out': False}
 
 
@@ -159,6 +158,7 @@ def main(args):
         # Reconstruction
         if args.resume:
             cali_data = (torch.randn(4, 4, latent_size, latent_size), torch.randint(0, 1000, (4,)), torch.randint(0, 1000, (4,)), args.cfg_scale)
+            # cali_data = (cali_xs_init, cali_ts_init, cali_ys_init, args.cfg_scale)
             resume_cali_model(qnn, args.cali_ckpt, cali_data)
         else:
             logger.info("Initializing weight quantization parameters")
@@ -196,56 +196,10 @@ def main(args):
             torch.save(qnn.state_dict(), os.path.join(outpath, "ckpt_init.pth"))
             logger.info('Calibrated model saved to {}'.format(os.path.join(outpath, "ckpt_init.pth")))
 
-
-        if args.tunepct:
-            cali_data = (cali_xs, cali_ts, cali_ys, args.cfg_scale)
-            kwargs = dict(cali_data=cali_data, batch_size=args.cali_batch_size, 
-                        iters=args.cali_iters, weight=0.01, asym=True, b_range=(20, 2),
-                        warmup=0.2, act_quant=True, opt_mode=args.opt_mode, outpath=outpath)
-
-            def tune_pct(model):
-                for name, module in model.named_children():
-                    if isinstance(module, QuantModule):
-                        logger.info('Reconstruction for layer {}'.format(name))
-                        layer_tunepct(qnn, module, **kwargs)
-                    elif isinstance(module, QuantDiTBlock) or isinstance(module, QuantFinalLayer):
-                        logger.info('Reconstruction for block {}'.format(name))
-                        block_tunepct(qnn, module, **kwargs)
-                    else:
-                        recon_model(module)
-            torch.set_grad_enabled(True)
-            tune_pct(qnn)
-            
-            logger.info("Saving calibrated quantized UNet model")
-            for m in qnn.model.modules():
-                if isinstance(m, AdaRoundQuantizer):
-                    m.zero_point = nn.Parameter(m.zero_point)
-                    m.delta = nn.Parameter(m.delta)
-                    # lwc
-                    if hasattr(m, 'upbound_factor') and m.upbound_factor is not None:
-                        m.upbound_factor = nn.Parameter(m.upbound_factor)
-                    if hasattr(m, 'lowbound_factor') and m.lowbound_factor is not None:
-                        m.lowbound_factor = nn.Parameter(m.lowbound_factor)
-
-                    # 离群点
-                    # outlier_indices, outlier_values, 本身就是buffer
-
-                elif isinstance(m, UniformAffineQuantizer):
-                    m.delta = nn.Parameter(m.delta)
-                    # lwc
-                    if hasattr(m, 'upbound_factor') and m.upbound_factor is not None:
-                        m.upbound_factor = nn.Parameter(m.upbound_factor)
-                    if hasattr(m, 'lowbound_factor') and m.lowbound_factor is not None:
-                        m.lowbound_factor = nn.Parameter(m.lowbound_factor)
-                    if m.zero_point is not None:
-                        if not torch.is_tensor(m.zero_point):
-                            m.zero_point = nn.Parameter(torch.tensor(float(m.zero_point)))
-                        else:
-                            m.zero_point = nn.Parameter(m.zero_point.float())
-            torch.save(qnn.state_dict(), os.path.join(outpath, "ckpt.pth"))
-            logger.info('Calibrated model saved to {}'.format(os.path.join(outpath, "ckpt.pth")))
-        qnn.set_quant_state(True, True)
-
+            # if args.recon_ref:
+            #     ckpt = torch.load(args.cali_ckpt, map_location='cpu')
+            #     convert_adaround(qnn)
+            #     qnn.load_state_dict(ckpt, strict=False)
 
 
         if args.recon:
@@ -280,7 +234,7 @@ def main(args):
                         m.lowbound_factor = nn.Parameter(m.lowbound_factor)
 
                     # 离群点
-                    # outlier_indices, outlier_values, 本身就是buffer
+                    # outlier_indices, outlier_values
 
                 elif isinstance(m, UniformAffineQuantizer):
                     m.delta = nn.Parameter(m.delta)
@@ -383,12 +337,12 @@ if __name__ == "__main__":
     parser.add_argument('--cali_lr', default=4e-4, type=float, help='learning rate for reconstruction')
     parser.add_argument('--cali_p', default=2.4, type=float, help='L_p norm minimization for reconstruction')
     parser.add_argument("--sm_abit",type=int, default=8, help="attn softmax activation bit")
-    parser.add_argument("--tunepct", action="store_true", help="tune the pct")
     parser.add_argument("--recon", action="store_true", help="reconstruct the model")
     parser.add_argument("--opt-mode", type=str, default="mse", help="optimization loss for reconstruction")
     parser.add_argument("--inference", action="store_true", help="inference for all classes")
     parser.add_argument("--n_c", type=int, default=10, help="number of samples for each class for inference")
     parser.add_argument("--c_begin", type=int, default=0, help="begining class index for inference")
     parser.add_argument("--c_end", type=int, default=999, help="ending class index for inference")
+    parser.add_argument("--recon_ref", action="store_true", help="add the recon model reference")
     args = parser.parse_args()
     main(args)

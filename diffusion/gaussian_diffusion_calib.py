@@ -454,7 +454,6 @@ class GaussianDiffusion:
         """
         final = None
         intermediates = {"xs": [], "ts": []}
-        feature_map = []
         for sample, save_xs, save_ts in self.p_sample_loop_progressive(
             model,
             shape,
@@ -467,11 +466,9 @@ class GaussianDiffusion:
             progress=progress,
         ):
             final = sample
-            if hooks is not None:
-                feature_map.append(hooks[0].feature[0])
             intermediates["xs"].append(save_xs)
             intermediates["ts"].append(save_ts)
-        return final["sample"], intermediates, feature_map
+        return final["sample"], intermediates
 
     def p_sample_loop_progressive(
         self,

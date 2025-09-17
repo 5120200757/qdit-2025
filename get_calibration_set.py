@@ -16,6 +16,8 @@ from download import find_model
 from models import DiT_models
 import argparse
 import numpy as np
+import os
+from torchvision.utils import save_image
 
 
 def main(args):
@@ -46,10 +48,12 @@ def main(args):
     # Labels to condition the model with (feel free to change):
     all_labels = np.arange(1000)
     logs = {}
+
+    sample_acts = []
     # Create sampling noise:
     for c in all_labels:
         print(f"Generating calibration data for class {c}")
-        class_labels = [c] * 2
+        class_labels = [c] * 10
         n = len(class_labels)
         z = torch.randn(n, 4, latent_size, latent_size, device=device)
         y = torch.tensor(class_labels, device=device)
@@ -79,6 +83,21 @@ def main(args):
         
         samples, _ = samples.chunk(2, dim=0)  # Remove null class samples
         samples = vae.decode(samples / 0.18215).sample
+        img_dir = os.path.join(args.outdir, "images")
+        os.makedirs(img_dir, exist_ok=True)
+
+        for i, sample in enumerate(samples):
+            save_image(sample, os.path.join(img_dir, f"class_{c}_idx_{i}.png"), normalize=True, value_range=(-1, 1))
+            sample_cpu = sample.cpu()
+            sample_np = np.array(sample_cpu)
+            sample_np = ((sample_np + 1) * 127.5)
+            sample_np = np.clip(sample_np, 0, 255)
+            sample_np = sample_np.astype(np.uint8)
+            if sample_np.shape[0] == 3:
+                sample_np = np.transpose(sample_np, (1, 2, 0))
+            sample_acts.append(sample_np)
+    sample_acts = np.stack(sample_acts, axis=0)
+    np.savez(f"{img_dir}/sample_batch.npz", arr_0=sample_acts)
 
     for k in logs.keys():
         print(logs[k].shape)

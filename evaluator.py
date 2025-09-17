@@ -189,20 +189,53 @@ class Evaluator:
         return FIDStatistics(mu, sigma)
 
     # 求IS
-    def compute_inception_score(self, activations: np.ndarray, split_size: int = 10000) -> float:
+    def compute_inception_score(self, activations: np.ndarray, split_size: int = 10000,
+                                return_entropies: bool = False, eps: float = 1e-12) -> float:
+        """
+        计算 Inception Score。
+        额外输出:
+          平均条件熵(Avg H_cond) 与 边际熵(H_marg)
+        参数:
+          activations: shape [N, 2048] 的池化特征
+          split_size: 分块大小（用于与传统实现一致的多 split 估计）
+          return_entropies: 若为 True 返回 (is_score, H_cond, H_marg)
+          eps: 数值稳定项
+        """
         softmax_out = []
         for i in range(0, len(activations), self.softmax_batch_size):
-            acts = activations[i : i + self.softmax_batch_size]
+            acts = activations[i: i + self.softmax_batch_size]
             softmax_out.append(self.sess.run(self.softmax, feed_dict={self.softmax_input: acts}))
-        preds = np.concatenate(softmax_out, axis=0)
-        # https://github.com/openai/improved-gan/blob/4f5d1ec5c16a7eceb206f42bfc652693601e1d5c/inception_score/model.py#L46
+        preds = np.concatenate(softmax_out, axis=0)  # [N, C], 每行求和=1
+
+        # 全局熵统计（更精确）
+        p_y = preds.mean(axis=0)                                  # 边际分布 p(y)
+        
+        # 平均条件熵， 清晰度 ，越低越好
+        cond_entropy = -np.mean(np.sum(preds * np.log(preds + eps), axis=1))   # E_x H(p(y|x))
+        
+        # 边际熵， 多样性， 越高越好
+        marg_entropy = -np.sum(p_y * np.log(p_y + eps))                        # H(p(y))
+        # 理论 IS（基于全局分布）
+        is_global = float(np.exp(marg_entropy - cond_entropy))
+
+        # 保留原 split 估计方式（与原代码一致），用于和历史结果对齐
         scores = []
         for i in range(0, len(preds), split_size):
-            part = preds[i : i + split_size]
-            kl = part * (np.log(part) - np.log(np.expand_dims(np.mean(part, 0), 0)))
-            kl = np.mean(np.sum(kl, 1))
+            part = preds[i: i + split_size]
+            p_part = part.mean(axis=0, keepdims=True)
+            kl = part * (np.log(part + eps) - np.log(p_part + eps))
+            kl = np.mean(np.sum(kl, axis=1))
             scores.append(np.exp(kl))
-        return float(np.mean(scores))
+        is_split_mean = float(np.mean(scores))
+
+        # 输出信息
+        print(f"[InceptionScore] split_mean={is_split_mean:.6f} global={is_global:.6f} "
+              f"AvgCondEntropy={cond_entropy:.6f} MargEntropy={marg_entropy:.6f}")
+
+        # 为兼容旧调用：默认返回 split 版本（与之前行为一致）
+        if return_entropies:
+            return is_split_mean, cond_entropy, marg_entropy
+        return is_split_mean
 
     def compute_prec_recall(
         self, activations_ref: np.ndarray, activations_sample: np.ndarray

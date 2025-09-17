@@ -47,8 +47,8 @@ class AdaRoundQuantizer(nn.Module):
         if self.t_out and uaq.x_outlier is not None:
             self.x_outlier = uaq.x_outlier
             xo = self.x_outlier.coalesce()
-            self.register_buffer("outlier_indices", xo.indices(), persistent=True)
-            self.register_buffer("outlier_values", xo.values(), persistent=True)
+            self.register_buffer("outlier_indices", xo.indices())
+            self.register_buffer("outlier_values", xo.values())
             del self.x_outlier
         
 
@@ -127,15 +127,17 @@ class AdaRoundQuantizer(nn.Module):
                 self.delta, self.zero_point = self.init_scale(x)
 
             # 减去离群点
-            if self.t_out and hasattr(self, 'outlier_indices'):
-                x_work= x.clone()
-                self.outlier_indices = self.outlier_indices.to(x_work.device)
-                self.outlier_values = self.outlier_values.to(x_work.device)
-                idx = tuple(self.outlier_indices)
-                vals = self.outlier_values
-                x_work[idx] -= vals
-            else:
-                x_work = x
+            # if self.t_out and hasattr(self, 'outlier_indices'):
+            #     x_work= x.clone()
+            #     self.outlier_indices = self.outlier_indices.to(x_work.device)
+            #     self.outlier_values = self.outlier_values.to(x_work.device)
+            #     idx = tuple(self.outlier_indices)
+            #     vals = self.outlier_values
+            #     x_work[idx] -= vals
+            # else:
+            #     x_work = x
+
+            x_work = x
 
             x_floor = torch.floor(x_work / self.delta)
             if self.soft_targets:
